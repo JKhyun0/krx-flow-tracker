@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>투자자별 수급 트래커 — 삼성전자 · SK하이닉스 · 삼성전기</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.3/chart.umd.min.js"></script>
+<style>
+  :root{
+    --paper:#F5F6F8; --card:#FFFFFF; --ink:#131C2B; --sub:#5B6472; --line:#E3E6EB;
+    --up:#C0392B; --down:#1F5FBF; /* 한국식: 순매수=적색, 순매도=청색 */
+    --ind:#C77F1A; --frn:#1F5FBF; --pen:#1E8E5A; --fin:#8A5FBF;
+    --mono:'IBM Plex Mono',ui-monospace,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--paper);color:var(--ink);font-family:'IBM Plex Sans KR','Apple SD Gothic Neo','Malgun Gothic',sans-serif;line-height:1.5}
+  .wrap{max-width:1080px;margin:0 auto;padding:28px 20px 60px}
+  header h1{font-size:21px;font-weight:700;letter-spacing:-.01em}
+  header .sub{color:var(--sub);font-size:13px;margin-top:4px}
+  header .stamp{font-family:var(--mono);font-size:12px;color:var(--sub);margin-top:2px}
+
+  /* 시그니처: 기간 누적 순매수 요약 카드 */
+  .sumgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:18px 0 6px}
+  .sumcard{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--sub);border-radius:8px;padding:10px 14px}
+  .sumcard .lbl{font-size:12px;color:var(--sub)}
+  .sumcard .val{font-family:var(--mono);font-size:17px;font-weight:600;margin-top:2px}
+  .val.pos{color:var(--up)} .val.neg{color:var(--down)}
+
+  .controls{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin:20px 0 14px}
+  .seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--card)}
+  .seg button{border:0;background:none;padding:8px 15px;font:inherit;font-size:13.5px;font-weight:500;color:var(--sub);cursor:pointer;white-space:nowrap}
+  .seg button.on{background:var(--ink);color:#fff}
+  .invs{display:flex;gap:6px;flex-wrap:wrap}
+  .invs button{border:1px solid var(--line);background:var(--card);border-radius:20px;padding:5px 13px;font-size:12.5px;cursor:pointer;color:var(--sub)}
+  .invs button.on{color:var(--ink);font-weight:600;box-shadow:inset 0 0 0 1.5px currentColor}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:20px;margin-bottom:18px}
+  .card h2{font-size:14px;font-weight:600;color:var(--sub);margin-bottom:14px}
+  .chartbox{position:relative;height:340px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{color:var(--sub);font-weight:500;text-align:right;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+  td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:right;font-family:var(--mono);font-size:12.5px}
+  th:first-child,td:first-child{text-align:left;font-family:var(--mono)}
+  td.pos{color:var(--up)} td.neg{color:var(--down)}
+  .empty{padding:60px 20px;text-align:center;color:var(--sub);font-size:14px}
+  footer{color:var(--sub);font-size:12px;margin-top:26px;line-height:1.8}
+  @media (max-width:640px){ .chartbox{height:260px} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>투자자별 수급 트래커</h1>
+    <div class="sub">삼성전자 · SK하이닉스 · 삼성전기 — 개인 / 외국인 / 연기금 / 금융투자 일별 매수·매도·순매수 (거래대금, 억원)</div>
+    <div class="stamp" id="stamp">데이터 불러오는 중…</div>
+  </header>
+
+  <div class="sumgrid" id="sumgrid"></div>
+
+  <div class="controls">
+    <div class="seg" id="stockSeg"></div>
+    <div class="seg" id="metricSeg"></div>
+    <div class="seg" id="rangeSeg"></div>
+    <div class="invs" id="invBtns"></div>
+  </div>
+
+  <div class="card">
+    <h2 id="barTitle">일별 순매수 (억원)</h2>
+    <div class="chartbox"><canvas id="barChart"></canvas></div>
+  </div>
+
+  <div class="card">
+    <h2 id="cumTitle">기간 누적 순매수 (억원)</h2>
+    <div class="chartbox"><canvas id="cumChart"></canvas></div>
+  </div>
+
+  <div class="card">
+    <h2 id="tblTitle">최근 15거래일 (억원)</h2>
+    <div style="overflow-x:auto"><table id="tbl"></table></div>
+  </div>
+
+  <footer>
+    데이터 출처: 한국거래소(KRX) 정보데이터시스템 data.krx.co.kr — [12009] 투자자별 거래실적(개별종목), 거래대금(원) 기준, 매 거래일 종료 후 확정치. pykrx 라이브러리로 수집.<br>
+    ※ '외국인'은 등록 외국인 기준(기타외국인 제외), '연기금'은 KRX 분류상 연기금 등, '금융투자'는 증권사 자기매매 계정입니다. 순매수 = 매수대금 − 매도대금. 원본 시계열은 저장소의 data/history.csv 참조.
+  </footer>
+</div>
+
+<script>
+const STOCKS=[["005930","삼성전자"],["000660","SK하이닉스"],["009150","삼성전기"]];
+const METRICS=[["net_krw","순매수"],["buy_krw","매수"],["sell_krw","매도"]];
+const RANGES=[["1M",22],["3M",66],["6M",132],["전체",99999]];
+const INVS=["개인","외국인","연기금","금융투자"];
+const COLOR={ "개인":"#C77F1A","외국인":"#1F5FBF","연기금":"#1E8E5A","금융투자":"#8A5FBF" };
+let ROWS=[], code="005930", metric="net_krw", range=66, picked=new Set(INVS);
+let barChart=null, cumChart=null;
+const EOK=1e8; // 억원
+const fmt=(v,d=0)=>v==null||isNaN(v)?"–":Number(v).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
+
+fetch("data/history.json").then(r=>{if(!r.ok)throw 0;return r.json()})
+ .then(j=>{
+   ROWS=j.rows.map(r=>({...r,buy_krw:parseFloat(r.buy_krw),sell_krw:parseFloat(r.sell_krw),net_krw:parseFloat(r.net_krw)}));
+   document.getElementById("stamp").dataset.gen=j.generated_utc||"";
+   init();
+ })
+ .catch(()=>{
+   document.getElementById("stamp").textContent="";
+   document.getElementById("barChart").closest(".card").innerHTML=
+     '<div class="empty">아직 기록된 데이터가 없습니다.<br>GitHub Actions 첫 실행(과거 6개월 소급 수집) 후 새로고침 해주세요. Actions 탭 → Run workflow로 바로 실행할 수 있습니다.</div>';
+   document.getElementById("cumChart").closest(".card").remove();
+   document.getElementById("tbl").closest(".card").remove();
+ });
+
+function segBuild(id, items, get, set){
+  const el=document.getElementById(id); el.innerHTML="";
+  items.forEach(([v,label])=>{
+    const b=document.createElement("button"); b.textContent=label;
+    b.onclick=()=>{set(v);render();}; b.dataset.v=v; el.appendChild(b);
+  });
+}
+function segMark(id, cur){ [...document.getElementById(id).children].forEach(b=>b.classList.toggle("on",String(b.dataset.v)===String(cur))); }
+
+function init(){
+  segBuild("stockSeg", STOCKS, ()=>code, v=>code=v);
+  segBuild("metricSeg", METRICS.map(([v,l])=>[v,l]), ()=>metric, v=>metric=v);
+  segBuild("rangeSeg", RANGES.map(([l,n])=>[n,l]), ()=>range, v=>range=parseInt(v));
+  const ib=document.getElementById("invBtns");
+  INVS.forEach(inv=>{
+    const b=document.createElement("button"); b.textContent=inv; b.style.color=COLOR[inv];
+    b.onclick=()=>{picked.has(inv)?picked.delete(inv):picked.add(inv);render();};
+    ib.appendChild(b);
+  });
+  render();
+}
+
+function render(){
+  segMark("stockSeg",code); segMark("metricSeg",metric); segMark("rangeSeg",range);
+  [...document.getElementById("invBtns").children].forEach(b=>b.classList.toggle("on",picked.has(b.textContent)));
+
+  const name=STOCKS.find(s=>s[0]===code)[1];
+  const mLabel=METRICS.find(m=>m[0]===metric)[1];
+  const all=ROWS.filter(r=>r.code===code);
+  const dates=[...new Set(all.map(r=>r.date))].sort().slice(-range);
+  const byKey={}; all.forEach(r=>{byKey[r.date+"|"+r.investor]=r;});
+
+  document.getElementById("stamp").textContent =
+    dates.length?`${name} 기록: ${dates[0]} ~ ${dates[dates.length-1]} (${dates.length}거래일)`:"";
+
+  // 요약 카드: 표시 기간 누적 순매수
+  const grid=document.getElementById("sumgrid"); grid.innerHTML="";
+  INVS.forEach(inv=>{
+    const cum=dates.reduce((a,d)=>{const r=byKey[d+"|"+inv];return a+(r&&!isNaN(r.net_krw)?r.net_krw:0);},0)/EOK;
+    grid.insertAdjacentHTML("beforeend",
+      `<div class="sumcard" style="border-left-color:${COLOR[inv]}">
+         <div class="lbl">${inv} · 기간 누적 순매수</div>
+         <div class="val ${cum>0?"pos":cum<0?"neg":""}">${cum>0?"+":""}${fmt(cum)} 억</div></div>`);
+  });
+
+  // 일별 막대
+  const barDs=[...picked].map(inv=>({
+    label:inv, data:dates.map(d=>{const r=byKey[d+"|"+inv];return r?r[metric]/EOK:null;}),
+    backgroundColor:COLOR[inv], borderRadius:2,
+  }));
+  // 누적 순매수 선 (선택 기간 내 누적)
+  const cumDs=[...picked].map(inv=>{
+    let a=0;
+    return {label:inv, data:dates.map(d=>{const r=byKey[d+"|"+inv];a+=(r&&!isNaN(r.net_krw)?r.net_krw:0);return a/EOK;}),
+      borderColor:COLOR[inv], backgroundColor:COLOR[inv], tension:.15, pointRadius:0, borderWidth:2};
+  });
+
+  const base={responsive:true,maintainAspectRatio:false,interaction:{mode:"index",intersect:false},
+    plugins:{legend:{labels:{boxWidth:10}}},
+    scales:{x:{ticks:{font:{family:"'IBM Plex Mono'",size:10},maxTicksLimit:12},grid:{display:false}},
+            y:{ticks:{font:{family:"'IBM Plex Mono'",size:11},callback:v=>Number(v).toLocaleString()},grid:{color:"#EDEFF3"}}}};
+  if(barChart)barChart.destroy(); if(cumChart)cumChart.destroy();
+  barChart=new Chart(document.getElementById("barChart"),{type:"bar",data:{labels:dates,datasets:barDs},options:base});
+  cumChart=new Chart(document.getElementById("cumChart"),{type:"line",data:{labels:dates,datasets:cumDs},options:base});
+  document.getElementById("barTitle").textContent=`${name} — 일별 ${mLabel} (억원)`;
+  document.getElementById("cumTitle").textContent=`${name} — 기간 누적 순매수 (억원)`;
+
+  // 최근 15거래일 표
+  const recent=dates.slice(-15).reverse();
+  let html=`<tr><th>일자</th>`+INVS.map(i=>`<th>${i} ${mLabel}</th>`).join("")+`</tr>`;
+  recent.forEach(d=>{
+    html+=`<tr><td>${d}</td>`+INVS.map(inv=>{
+      const r=byKey[d+"|"+inv]; const v=r?r[metric]/EOK:null;
+      const cls=metric==="net_krw"&&v!=null?(v>0?"pos":v<0?"neg":""):"";
+      return `<td class="${cls}">${v==null?"–":(metric==="net_krw"&&v>0?"+":"")+fmt(v)}</td>`;
+    }).join("")+`</tr>`;
+  });
+  document.getElementById("tbl").innerHTML=html;
+  document.getElementById("tblTitle").textContent=`${name} — 최근 15거래일 ${mLabel} (억원)`;
+}
+</script>
+</body>
+</html>
