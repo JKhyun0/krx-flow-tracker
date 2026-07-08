@@ -1,0 +1,39 @@
+name: KRX Investor Flow Daily Tracker
+
+on:
+  schedule:
+    # 평일 UTC 10:30 = 한국시간 저녁 7시 30분 (KRX 투자자별 데이터 확정 이후)
+    - cron: "30 10 * * 1-5"
+  workflow_dispatch: {}   # Actions 탭에서 "Run workflow" 버튼으로 수동 실행 가능
+
+permissions:
+  contents: write
+
+jobs:
+  track:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: 파이썬 설치
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 라이브러리 설치
+        run: pip install pykrx pandas
+
+      - name: KRX 투자자별 수급 수집
+        env:
+          KRX_ID: ${{ secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_PW }}
+        run: python krx_tracker.py
+
+      - name: 결과 커밋
+        run: |
+          git config user.name "krx-tracker-bot"
+          git config user.email "actions@github.com"
+          git add data/
+          git diff --cached --quiet || git commit -m "chore: flow update $(date -u +%Y-%m-%d)"
+          git push
